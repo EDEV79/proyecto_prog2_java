@@ -1,25 +1,25 @@
-# 🧾 Java Product CRUD System
+# proyecto_prog2_java
 
-Basic CRUD application developed in Java with MySQL integration.
+Java Product CRUD System developed with MySQL integration.
 
-## 🚀 Features
+## Features
 
 - Create products
 - Edit products
 - Delete products
 - Calculate total price (price \* quantity)
 
-## 🛠️ Technologies
+## Technologies
 
 - Java
 - MySQL
 - HTML
 - JDBC
 
-## 📌 Description
+## Description
 
 This project was built as part of a Programming II course. It demonstrates CRUD operations and database integration using Java.
 
-## 👨‍💻 Author
+## Author
 
 Edwin Ulate
