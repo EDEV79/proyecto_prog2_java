@@ -1,7 +1,8 @@
+import java.awt.*;
+import java.util.List;
+import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.table.*;
-import java.awt.*;
-import java.awt.event.*;
 
 public class Vista extends JFrame {
 
@@ -10,6 +11,11 @@ public class Vista extends JFrame {
     private JTable tabla;
     private DefaultTableModel modelo;
     private int idEditando = -1;
+
+    @FunctionalInterface
+    interface BackgroundTask<T> {
+        T run() throws Exception;
+    }
 
     public Vista() {
         setTitle("Gestión de Productos - Proyecto Final");
@@ -173,13 +179,6 @@ public class Vista extends JFrame {
 
         setVisible(true);
         cargarTablaAlIniciar();
-
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowOpened(WindowEvent e) {
-                cargarTabla();
-            }
-        });
     }
 
     // ---- CRUD ----
@@ -198,11 +197,19 @@ public class Vista extends JFrame {
         try {
             double precio = Double.parseDouble(precioStr);
             int cantidad = Integer.parseInt(cantidadStr);
-            logica.insertar(nombre, producto, precio, cantidad);
-            limpiarFormulario();
-            cargarTabla();
-            JOptionPane.showMessageDialog(this,
-                "Registro insertado correctamente.", "Éxito", JOptionPane.INFORMATION_MESSAGE);
+            ejecutarEnSegundoPlano(
+                () -> {
+                    logica.insertar(nombre, producto, precio, cantidad);
+                    return logica.obtenerRegistros();
+                },
+                filas -> {
+                    actualizarModelo(filas);
+                    limpiarFormulario();
+                    JOptionPane.showMessageDialog(this,
+                        "Registro insertado correctamente.", "Éxito", JOptionPane.INFORMATION_MESSAGE);
+                },
+                "No fue posible insertar el registro."
+            );
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this,
                 "Precio debe ser un número decimal y Cantidad un número entero.", "Error de formato", JOptionPane.ERROR_MESSAGE);
@@ -223,14 +230,22 @@ public class Vista extends JFrame {
         try {
             double precio = Double.parseDouble(precioStr);
             int cantidad = Integer.parseInt(cantidadStr);
-            logica.actualizar(idEditando, nombre, producto, precio, cantidad);
-            limpiarFormulario();
-            cargarTabla();
-            idEditando = -1;
-            btnAccion.setText("   Insertar   ");
-            btnAccion.setBackground(new Color(46, 204, 113));
-            JOptionPane.showMessageDialog(this,
-                "Registro actualizado correctamente.", "Éxito", JOptionPane.INFORMATION_MESSAGE);
+            ejecutarEnSegundoPlano(
+                () -> {
+                    logica.actualizar(idEditando, nombre, producto, precio, cantidad);
+                    return logica.obtenerRegistros();
+                },
+                filas -> {
+                    actualizarModelo(filas);
+                    limpiarFormulario();
+                    idEditando = -1;
+                    btnAccion.setText("   Insertar   ");
+                    btnAccion.setBackground(new Color(46, 204, 113));
+                    JOptionPane.showMessageDialog(this,
+                        "Registro actualizado correctamente.", "Éxito", JOptionPane.INFORMATION_MESSAGE);
+                },
+                "No fue posible actualizar el registro."
+            );
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this,
                 "Precio debe ser un número decimal y Cantidad un número entero.", "Error de formato", JOptionPane.ERROR_MESSAGE);
@@ -258,35 +273,85 @@ public class Vista extends JFrame {
                 "¿Desea eliminar el registro de \"" + nombre + "\"?",
                 "Confirmar eliminación", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                logica.eliminar(id);
-                cargarTabla();
+                ejecutarEnSegundoPlano(
+                    () -> {
+                        logica.eliminar(id);
+                        return logica.obtenerRegistros();
+                    },
+                    this::actualizarModelo,
+                    "No fue posible eliminar el registro."
+                );
             }
         });
     }
 
     public void cargarTabla() {
-        try {
-            logica.listar(modelo);
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                "No fue posible cargar los registros guardados.\nDetalle: " + e.getMessage(),
-                "Error de conexión", JOptionPane.ERROR_MESSAGE);
-        }
+        ejecutarEnSegundoPlano(
+            logica::obtenerRegistros,
+            this::actualizarModelo,
+            "No fue posible cargar los registros guardados."
+        );
     }
 
     private void cargarTablaAlIniciar() {
-        try {
-            int totalFilas = logica.listar(modelo);
-            if (totalFilas == 0) {
-                System.out.println("No hay registros previos en la base de datos.");
-            }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                "No fue posible cargar datos de sesiones anteriores.\n" +
-                "Verifique MySQL, la base profin_db y la tabla producto.\n\n" +
-                "Detalle: " + e.getMessage(),
-                "Error al iniciar", JOptionPane.ERROR_MESSAGE);
+        ejecutarEnSegundoPlano(
+            logica::obtenerRegistros,
+            filas -> {
+                actualizarModelo(filas);
+                if (filas.isEmpty()) {
+                    System.out.println("No hay registros previos en la base de datos.");
+                }
+            },
+            "No fue posible cargar datos de sesiones anteriores. Verifique MySQL, la base profin_db y la tabla producto."
+        );
+    }
+
+    private void actualizarModelo(List<Object[]> filas) {
+        modelo.setRowCount(0);
+        for (Object[] fila : filas) {
+            modelo.addRow(fila);
         }
+    }
+
+    private <T> void ejecutarEnSegundoPlano(
+        BackgroundTask<T> tarea,
+        Consumer<T> onSuccess,
+        String mensajeErrorBase
+    ) {
+        setBusy(true);
+        SwingWorker<T, Void> worker = new SwingWorker<>() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return tarea.run();
+            }
+
+            @Override
+            protected void done() {
+                setBusy(false);
+                try {
+                    onSuccess.accept(get());
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    String detalle = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+                    if (detalle.contains("Communications link failure") || detalle.contains("Connection refused")) {
+                        detalle = "No hay conexión con MySQL en 127.0.0.1:3306. "
+                            + "Inicie el servicio MySQL de XAMPP y vuelva a intentar.";
+                    }
+                    JOptionPane.showMessageDialog(Vista.this,
+                        mensajeErrorBase + "\nDetalle: " + detalle,
+                        "Error de conexión", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void setBusy(boolean busy) {
+        setCursor(busy
+            ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR)
+            : Cursor.getDefaultCursor());
+        btnAccion.setEnabled(!busy);
+        tabla.setEnabled(!busy);
     }
 
     private void limpiarFormulario() {

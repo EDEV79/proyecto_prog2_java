@@ -1,21 +1,29 @@
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 
 // Clase para manejar la conexión a la base de datos
 public class conexion {
 
-    public static Connection getConexion() {
-        Connection con = null;
+    private static final String URL = "jdbc:mysql://127.0.0.1:3306/profin_db"
+        + "?useUnicode=true"
+        + "&characterEncoding=UTF-8"
+        + "&useSSL=false"
+        + "&allowPublicKeyRetrieval=true"
+        + "&serverTimezone=UTC"
+        + "&connectTimeout=2000"
+        + "&socketTimeout=3000";
+    private static final String USER = "root";
+    private static final String PASSWORD = "";
+
+    public static Connection getConexion() throws SQLException {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
-            con = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/profin_db?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true",
-                "root", ""
-            );
-            //mensaje de error de coneccion a la base de datos
-        } catch (Exception e) {
-            System.out.println("Error al conectar a la base de datos: " + e);
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("No se encontró el driver JDBC de MySQL.", e);
         }
-        return con;
+
+        DriverManager.setLoginTimeout(5);
+        return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 } 
